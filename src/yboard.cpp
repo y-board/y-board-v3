@@ -121,15 +121,13 @@ bool YBoardV3::setup_mic() {
     return true;
 }
 
-void YBoardV3::loop_speaker() { YAudio::loop(); }
-
 bool YBoardV3::play_sound_file(const std::string &filename) {
     if (!play_sound_file_background(filename)) {
         return false;
     }
 
     while (is_audio_playing()) {
-        loop_speaker();
+        delay(10);
     }
 
     return true;
@@ -163,7 +161,7 @@ bool YBoardV3::play_notes(const std::string &notes) {
     }
 
     while (is_audio_playing()) {
-        loop_speaker();
+        delay(10);
     }
 
     return true;

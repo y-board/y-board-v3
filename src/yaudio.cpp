@@ -109,6 +109,7 @@ static void set_note_defaults();
 static void reset_audio_buf();
 static void start_i2s();
 static void I2Sout(void *params);
+static void loop_task(void *params);
 static void create_wave_header(wave_header_t *header, int data_length);
 static void convert_samples(int16_t *dest, const int32_t *src, int num_samples);
 
@@ -146,14 +147,13 @@ bool setup_speaker() {
     }
 
     xTaskCreate(I2Sout, "I2Sout", 20000, NULL, 1, NULL);
+    xTaskCreate(loop_task, "loop_task", 2048, NULL, 1, NULL);
 
     err = i2s_set_pin(SPEAKER_I2S_PORT, &pin_config_speaker);
     if (err != ESP_OK) {
         Serial.printf("Failed setting I2S pin configuration: %d\n", err);
         return false;
     }
-
-    i2s_running = true;
 
     Serial.println("I2S setup complete and running for speaker");
     return true;
@@ -280,9 +280,7 @@ bool add_notes(const std::string &new_notes) {
     notes += new_notes + "z";
 
     notes_running = true;
-    if (!i2s_running) {
-        start_i2s();
-    }
+    start_i2s();
 
     return true;
 }
@@ -470,6 +468,15 @@ void I2Sout(void *params) {
             }
             // Serial.printf("Frame sent. # populated: %d\n", audio_buf_num_populated_frames);
         }
+    }
+}
+
+void loop_task(void *params) {
+    while (true) {
+        if (is_playing()) {
+            loop();
+        }
+        delay(10);
     }
 }
 

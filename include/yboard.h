@@ -92,13 +92,6 @@ class YBoardV3 {
 
     ////////////////////////////// Speaker/Tones //////////////////////////////////
     /*
-     *  This function continues to play a sound on the speaker after the
-     * play_sound_file function is called. This function must be called often to
-     * playback the sound on the speaker.
-     */
-    void loop_speaker();
-
-    /*
      *  This function plays a sound on the speaker. The filename is a string
      * representing the name of the sound file to play. The return type is a boolean
      * value (true or false). True corresponds to the sound being played
