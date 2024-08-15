@@ -18,6 +18,8 @@ bool start_recording(const std::string &filename);
 void stop_recording();
 bool is_recording();
 void set_recording_gain(uint8_t new_gain);
+bool processWAVFile(const std::string &inputFilePath,const std::string &outputFilePath, int cuttoff_freq,bool highPass);
+bool bandRejectFilter(const std::string &inputFilePath, const std::string &outputFilePath,int low_cuttoff, int high_cutoff);
 }; // namespace YAudio
 
 #endif /* YAUDIO_H */

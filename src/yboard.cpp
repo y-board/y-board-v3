@@ -30,6 +30,9 @@ void YBoardV3::setup() {
     if (setup_temperature()) {
         Serial.println("Temperature Sensor Setup: Success");
     }
+    if(setup_display()){
+        Serial.println("Display Setup: Success");
+    }
 }
 
 ////////////////////////////// LEDs ///////////////////////////////
@@ -195,7 +198,7 @@ void YBoardV3::stop_recording() { YAudio::stop_recording(); }
 
 bool YBoardV3::is_recording() { return YAudio::is_recording(); }
 
-void YBoardV3::set_recording_volume(uint8_t volume) { YAudio::set_recording_gain(volume); }
+void YBoardV3::set_recording_volume(uint8_t volume) {  YAudio::set_recording_gain(volume); }
 
 ////////////////////////////// Accelerometer /////////////////////////////////////
 bool YBoardV3::setup_accelerometer() {
@@ -267,3 +270,43 @@ bool YBoardV3::setup_sd_card() {
 
     return true;
 }
+
+bool YBoardV3::apply_high_pass(const std::string &inputFilePath, const std::string &outputFilePath,int cuttoff_freq) {
+    return YAudio::processWAVFile(inputFilePath, outputFilePath, cuttoff_freq,true);
+}
+
+bool YBoardV3::apply_low_pass(const std::string &inputFilePath, const std::string &outputFilePath, int cuttoff_freq)
+{
+    return YAudio::processWAVFile(inputFilePath, outputFilePath, cuttoff_freq,false);
+}
+bool YBoardV3::apply_band_reject(const std::string &inputFilePath, const std::string &outputFilePath,int low_cuttoff, int high_cutoff) {
+    return YAudio::bandRejectFilter(inputFilePath, outputFilePath, low_cuttoff, high_cutoff);
+}
+
+bool YBoardV3::setup_display() {
+    if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3c)) {
+        return false;
+    } // Initialize display with I2C address: 0x3C
+    display.clearDisplay();
+    display.setTextColor(1);
+    display.setRotation(0); // Can be 0, 90, 180, or 270
+    display.setTextWrap(true);
+    display.dim(brightness_damper);
+    display.display();
+    return true;
+}
+
+void YBoardV3::display_text(const std::string &text, int text_size) {
+    display.setTextSize(text_size);
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.print(text.c_str());
+    display.display();   
+}
+
+void YBoardV3::clear_display() {
+    display.clearDisplay();
+    display.display();
+    
+}
+

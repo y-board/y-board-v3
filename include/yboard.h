@@ -7,7 +7,8 @@
 #include <SD.h>
 #include <SparkFun_LIS2DH12.h>
 #include <stdint.h>
-
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include "yaudio.h"
 
 struct accelerometer_data {
@@ -218,6 +219,33 @@ class YBoardV3 {
      */
     temperature_data get_temperature();
 
+
+    /*
+     *  This fucntion applies a high pass filter to audio data in a .wav file.
+     *  The first field is a string representing the path to the input file.
+     *  The second is a string representing the path to the output file.
+     *  The third is an integer representing the cutoff frequency of the high pass filter.
+     *  Returns true for successful processing and false for an error in reading or writing to the SD card
+     */
+    bool apply_high_pass(const std::string &inputFilePath, const std::string &outputFilePath, int cuttoff_freq);
+    /*
+     *  This fucntion applies a low pass filter to audio data in a .wav file.
+     *  The fields and parameters are the same as the apply_high_pass function.
+     */
+    bool apply_low_pass(const std::string &inputFilePath, const std::string &outputFilePath, int cuttoff_freq);
+    /*
+     *  This fucntion applies a band reject filter to audio data in a .wav file.
+     *  The fields and parameters are the same as the other filter functions but with low and high cutoff frequencies.
+     */
+    bool apply_band_reject(const std::string &inputFilePath, const std::string &outputFilePath,int low_cuttoff, int high_cutoff);
+
+    /*
+      *  This function displays text on the OLED screen. Takes in a parameter text size
+     */
+    void display_text(const std::string &text, const int text_size);
+    //   Clears the display
+    void clear_display();
+
     // LEDs
     static constexpr int led_pin = 5;
     static constexpr int led_count = 20;
@@ -251,6 +279,11 @@ class YBoardV3 {
     Adafruit_NeoPixel strip;
     SPARKFUN_LIS2DH12 accel;
     Adafruit_AHTX0 aht;
+    Adafruit_SSD1306 display;
+
+    // Screen Constants
+    float brightness_damper = 0.8; // 0 is brightest
+    int refresh_rate  = 50;     // Measured in ms
     bool wire_begin = false;
     bool sd_card_present = false;
 
@@ -262,6 +295,9 @@ class YBoardV3 {
     bool setup_accelerometer();
     bool setup_temperature();
     bool setup_sd_card();
+    bool setup_display();
+
+    
 };
 
 extern YBoardV3 Yboard;

@@ -29,7 +29,8 @@
         "adafruit/Adafruit BusIO": "*",
         "adafruit/Adafruit SH110X": "*",
         "adafruit/Adafruit GFX Library": "*",
-        "adafruit/Adafruit Unified Sensor": "*"
+        "adafruit/Adafruit Unified Sensor": "*",
+        "adafruit/Adafruit SSD1306": "*"
     },
     "frameworks": [
         "arduino"

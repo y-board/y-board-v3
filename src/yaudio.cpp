@@ -31,8 +31,13 @@ typedef struct {
     uint32_t data_length;
 } wave_header_t;
 
-int32_t i2s_read_buff[MIC_READ_BUF_SIZE];
-int16_t file_write_buff[MIC_READ_BUF_SIZE];
+//filter coefficients as a struct
+typedef struct {
+    double a0, a1, a2, b0, b1, b2, x1, x2, y1, y2;
+} filter_coefficients_t;
+
+uint32_t i2s_read_buff[MIC_READ_BUF_SIZE];
+uint16_t file_write_buff[MIC_READ_BUF_SIZE];
 
 static bool recording_audio = false;
 static bool done_recording_audio = true;
@@ -110,7 +115,75 @@ static void reset_audio_buf();
 static void start_i2s();
 static void I2Sout(void *params);
 static void create_wave_header(wave_header_t *header, int data_length);
-static void convert_samples(int16_t *dest, const int32_t *src, int num_samples);
+static void convert_samples(uint16_t *dest, const uint32_t *src, int num_samples);
+
+int16_t filter(int16_t& input, filter_coefficients_t& coefficients) {
+    
+    double output = coefficients.b0 * input + coefficients.b1 * coefficients.x1 + coefficients.b2 * coefficients.x2 - coefficients.a1 * coefficients.y1 - coefficients.a2 * coefficients.y2;
+    coefficients.x2 = coefficients.x1;
+    coefficients.x1 = input;
+    coefficients.y2 = coefficients.y1;
+    coefficients.y1 = output;
+
+    if (output > INT16_MAX) {
+        output = INT16_MAX;
+    }
+    return int16_t(output);
+}
+filter_coefficients_t calculate_filter_coefficients_butterworth(int cuttoff_freq, int sample_rate, bool high_pass) {
+    filter_coefficients_t coefficients;
+    coefficients.x1 = 0;
+    coefficients.x2 = 0;
+    coefficients.y1 = 0;
+    coefficients.y2 = 0;
+    double omega = 2.0 * PI * cuttoff_freq / sample_rate;
+    double sn = sin(omega);
+    double cs = cos(omega);
+    double alpha = sn / (2.0 * sqrt(2.0)); // Q = sqrt(2)/2 for Butterworth
+    double norm = 1.0 / (1.0 + alpha);
+    coefficients.b0 = high_pass ? (1.0 + cs) / 2.0 * norm : (1.0 - cs) / 2.0 * norm;
+    coefficients.b1 = high_pass ? -(1.0 + cs) * norm : (1.0 - cs) * norm;
+    coefficients.b2 = coefficients.b0;
+    coefficients.a1 = -2.0 * cs * norm;
+    coefficients.a2 = (1.0 - alpha) * norm;
+    return coefficients;
+}
+
+filter_coefficients_t calculate_filter_coefficients_biquad(int low_cutoff, int high_cutoff, int sample_rate) {
+    filter_coefficients_t coefficients;
+    coefficients.x1 = 0;
+    coefficients.x2 = 0;
+    coefficients.y1 = 0;
+    coefficients.y2 = 0;
+
+    int center_freq = (low_cutoff + high_cutoff) / 2;
+    int bandwidth = high_cutoff - low_cutoff;
+
+    double omega = 2.0 * PI * center_freq / sample_rate;
+    double alpha = std::sin(omega) * std::sinh(std::log(2.0) / 2.0 * bandwidth * omega / std::sin(omega));
+    alpha = 1;
+    
+    
+
+    coefficients.b0 = 1.0;
+    coefficients.b1 = -2.0 * std::cos(omega);
+    coefficients.b2 = 1.0;
+    coefficients.a0 = 1.0 + alpha;
+    coefficients.a1 = -2.0 * std::cos(omega);
+    coefficients.a2 = 1.0 - alpha;
+
+    // Normalize the coefficients
+    coefficients.b0 /= coefficients.a0;
+    coefficients.b1 /= coefficients.a0;
+    coefficients.b2 /= coefficients.a0;
+    coefficients.a1 /= coefficients.a0;
+    coefficients.a2 /= coefficients.a0;
+
+
+    
+
+    return coefficients;
+}
 
 ////////////////////////////// Public Functions ///////////////////////////////
 bool setup_speaker() {
@@ -328,9 +401,8 @@ bool start_recording(const std::string &filename) {
                 }
 
                 // Convert the 32-bit samples to 16-bit samples
-                int num_samples = bytes_read / 4;
-                int bytes_to_write = num_samples * 2;
-                convert_samples(file_write_buff, i2s_read_buff, num_samples);
+                convert_samples(file_write_buff, i2s_read_buff, bytes_read / 4);
+                int bytes_to_write = bytes_read / 2;
 
                 // Write it to the file
                 if (speaker_recording_file.write((uint8_t *)file_write_buff, bytes_to_write) !=
@@ -340,7 +412,7 @@ bool start_recording(const std::string &filename) {
                 }
 
                 total_bytes_read += bytes_read;
-                // Serial.println("Recording audio...");
+                Serial.println("Recording audio...");
             }
 
             // Fill in the header
@@ -459,7 +531,7 @@ void I2Sout(void *params) {
         } while (retv == pdPASS);
 
         if (TXdoneEvent) {
-            if (audio_buf_num_populated_frames > 0) {
+            if (audio_buf_num_populated_frames >= 0) {
                 size_t bytes_written;
                 i2s_write(SPEAKER_I2S_PORT, &audio_buf[audio_buf_frame_idx_to_send * FRAME_SIZE],
                           FRAME_SIZE * SPEAKER_BYTES_PER_SAMPLE, &bytes_written, portMAX_DELAY);
@@ -503,22 +575,9 @@ void create_wave_header(wave_header_t *header, int data_length) {
     header->data_length = data_length;
 }
 
-void convert_samples(int16_t *dest, const int32_t *src, int num_samples) {
-    int64_t sum = 0;
+void convert_samples(uint16_t *dest, const uint32_t *src, int num_samples) {
     for (int i = 0; i < num_samples; i++) {
-        // Convert to 16 bit
-        dest[i] = ((src[i] >> 16));
-
-        // Keep track of total to average later
-        sum += dest[i];
-    }
-
-    // Average the samples
-    int64_t avg = sum / num_samples;
-
-    for (int i = 0; i < num_samples; i++) {
-        dest[i] -= avg;            // Subtract the average from each sample
-        dest[i] *= recording_gain; // Apply the gain
+        dest[i] = (src[i] >> 16) * recording_gain;
     }
 }
 
@@ -768,5 +827,121 @@ void loop() {
         }
     }
 }
+
+bool processWAVFile(const std::string &inputFilePath, const std::string &outputFilePath,int cuttoff_freq,bool high_pass) {
+    File inputFile = SD.open(inputFilePath.c_str(), FILE_READ);
+    if (!inputFile) {
+        Serial.println("Error opening input file");
+        return false;
+    }
+
+    File outputFile = SD.open(outputFilePath.c_str(), FILE_WRITE);
+    if (!outputFile) {
+        Serial.println("Error opening output file");
+        inputFile.close();
+        return false;
+    }
+
+    //read and clone the header to the ouput file
+    wave_header_t header;
+    inputFile.read((uint8_t*)&header, sizeof(wave_header_t));
+    outputFile.write((uint8_t*)&header, sizeof(wave_header_t));
+
+    // Buffer for audio data
+    const int bufferSize = 512;
+    int16_t buffer[bufferSize];
+    
+
+    //calculate coefficients for 2nd order butterworth filter
+    filter_coefficients_t filter_coefficients_1 = calculate_filter_coefficients_butterworth(cuttoff_freq, MIC_SAMPLE_RATE, high_pass);
+    filter_coefficients_t filter_coefficients_2 = calculate_filter_coefficients_butterworth(cuttoff_freq, MIC_SAMPLE_RATE, high_pass);
+    filter_coefficients_t filter_coefficients_3 = calculate_filter_coefficients_butterworth(cuttoff_freq, MIC_SAMPLE_RATE, high_pass);
+    
+
+    while (inputFile.available()) {
+        int bytesRead = inputFile.read((uint8_t*)buffer, sizeof(buffer));
+        int samplesRead = bytesRead / sizeof(int16_t);
+
+        
+
+        // Cascade filter 3 times for extreme effect
+        for (int i = 0; i < samplesRead; i++) {
+            buffer[i] = filter(buffer[i], filter_coefficients_1);
+            buffer[i] = filter(buffer[i], filter_coefficients_2);
+            buffer[i] = filter(buffer[i], filter_coefficients_3);
+    
+        }
+
+        // Write filtered data to the output file
+        outputFile.write((uint8_t*)buffer, bytesRead);
+    }
+
+    inputFile.close();
+    outputFile.close();
+    
+    return true;
+}
+
+bool bandRejectFilter(const std::string &inputFilePath, const std::string &outputFilePath,int low_cuttoff, int high_cutoff) {
+    File inputFile = SD.open(inputFilePath.c_str(), FILE_READ);
+    if (!inputFile) {
+        Serial.println("Error opening input file");
+        return false;
+    }
+
+    File outputFile = SD.open(outputFilePath.c_str(), FILE_WRITE);
+    if (!outputFile) {
+        Serial.println("Error opening output file");
+        inputFile.close();
+        return false;
+    }
+
+    //read and clone the header to the ouput file
+    wave_header_t header;
+    inputFile.read((uint8_t*)&header, sizeof(wave_header_t));
+    outputFile.write((uint8_t*)&header, sizeof(wave_header_t));
+
+    // Buffer for audio data
+    const int bufferSize = 512;
+    int16_t buffer[bufferSize];
+    
+
+    //calculate coefficients for 2nd order butterworth filter
+    filter_coefficients_t filter_coefficients_1 = calculate_filter_coefficients_biquad(low_cuttoff,high_cutoff, MIC_SAMPLE_RATE);
+    filter_coefficients_t filter_coefficients_2 = calculate_filter_coefficients_biquad(low_cuttoff,high_cutoff, MIC_SAMPLE_RATE);
+
+    
+
+
+    
+    int chuncks_read = 0;
+    while (inputFile.available()) {
+        
+        int bytesRead = inputFile.read((uint8_t*)buffer, sizeof(buffer));
+        int samplesRead = bytesRead / sizeof(int16_t);
+
+        for (int i = 0; i < samplesRead; i++) {
+            buffer[i] = filter(buffer[i], filter_coefficients_1);
+            buffer[i] = filter(buffer[i], filter_coefficients_2);
+            if (chuncks_read > 10) {
+                buffer[i] = buffer[i] * 3;
+            }
+    
+        }
+
+
+        // Write filtered data to the output file
+        outputFile.write((uint8_t*)buffer, bytesRead);
+        chuncks_read++;
+    }
+    
+
+    inputFile.close();
+    outputFile.close();
+    
+    return true;
+}
+    
+
 
 }; // namespace YAudio
